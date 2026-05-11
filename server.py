@@ -10,16 +10,18 @@ Endpoints:
 
 Design notes:
   - Pet state is computed on demand from the raw event log (reviews.jsonl).
-  - Events from before a user's `started_at` are filtered out, so the pet
-    only knows about activity since the account was created.
+  - Events from before a user's `started_at` are filtered out.
   - Future reward features (XP, badges, prizes) should be derived from
     the same event log — don't add new "state" tables, add new queries.
 
-Run with:
+Run locally:
     python server.py
+On Railway (or any other host that sets PORT):
+    Same command. The code below auto-detects environment via PORT.
 """
 
 import json
+import os
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
@@ -34,16 +36,12 @@ DATA_FILE = PROJECT_DIR / "reviews.jsonl"
 
 # ---------------------------------------------------------------------------
 # User table
-#
-# Hardcoded for now. When we add real auth this becomes a database table
-# (users) with columns (id, email, started_at, daily_goal, ...).
-# To add a test user, just add an entry to this dict.
 # ---------------------------------------------------------------------------
 
 USERS: dict[str, dict] = {
     "cameron": {
-        "started_at": "2026-05-04",   # YYYY-MM-DD; "day 1" with the pet
-        "daily_goal": 100,            # Cards/day the pet wants to see
+        "started_at": "2026-05-04",
+        "daily_goal": 100,
     },
 }
 
@@ -58,7 +56,6 @@ def get_user(user_id: str) -> dict | None:
 
 @app.route("/", methods=["GET"])
 def index():
-    """Health-check endpoint (JSON)."""
     return jsonify({
         "service": "ankigotchi-dev-server",
         "status": "running",
@@ -69,7 +66,6 @@ def index():
 
 @app.route("/reviews", methods=["POST"])
 def receive_reviews():
-    """Single review-count event from the Anki add-on."""
     data = request.get_json(silent=True)
     if data is None:
         return jsonify({"error": "expected a JSON body"}), 400
@@ -83,10 +79,6 @@ def receive_reviews():
 
 @app.route("/reviews/backfill", methods=["POST"])
 def receive_backfill():
-    """
-    Bulk historical events. Now a dev/test tool only — the product no
-    longer uses pre-signup history. Kept so we can seed test data.
-    """
     body = request.get_json(silent=True)
     if body is None:
         return jsonify({"error": "expected a JSON body"}), 400
@@ -132,11 +124,6 @@ def receive_backfill():
 
 @app.route("/pet/<user_id>", methods=["GET"])
 def get_pet_state(user_id: str):
-    """
-    Return computed pet state for a user.
-    404 only if the user doesn't exist; users with 0 events get a valid
-    "day 1, no reviews yet" state.
-    """
     user = get_user(user_id)
     if user is None:
         return jsonify({"error": "user not found", "user_id": user_id}), 404
@@ -157,7 +144,6 @@ def serve_app():
 # ---------------------------------------------------------------------------
 
 def append_event(event: dict) -> None:
-    """Append one event dict as a JSON line to reviews.jsonl."""
     with DATA_FILE.open("a") as f:
         f.write(json.dumps(event) + "\n")
 
@@ -170,12 +156,6 @@ def count_events() -> int:
 
 
 def load_user_events(user_id: str, started_at: str) -> dict[str, dict]:
-    """
-    Read events for a user, filter to those on or after `started_at`,
-    deduplicate by date (last-write-wins).
-
-    Returns a dict mapping date strings to the latest event for that date.
-    """
     if not DATA_FILE.exists():
         return {}
 
@@ -195,8 +175,6 @@ def load_user_events(user_id: str, started_at: str) -> dict[str, dict]:
             event_date = event.get("date")
             if not event_date:
                 continue
-            # Filter: only events on or after the user's start date count.
-            # ISO date strings compare correctly with `>=`.
             if event_date < started_at:
                 continue
 
@@ -212,7 +190,6 @@ def load_user_events(user_id: str, started_at: str) -> dict[str, dict]:
 # ---------------------------------------------------------------------------
 
 def current_streak(dates_with_reviews: set[str]) -> int:
-    """Consecutive days ending today (or yesterday) with at least one review."""
     today = date.today()
     check_date = today if today.isoformat() in dates_with_reviews else today - timedelta(days=1)
     streak = 0
@@ -223,7 +200,6 @@ def current_streak(dates_with_reviews: set[str]) -> int:
 
 
 def longest_streak(dates_with_reviews: set[str]) -> int:
-    """Longest run of consecutive dates with reviews, ever (within the filtered window)."""
     if not dates_with_reviews:
         return 0
     sorted_dates = sorted(date.fromisoformat(d) for d in dates_with_reviews)
@@ -239,10 +215,6 @@ def longest_streak(dates_with_reviews: set[str]) -> int:
 
 
 def goal_streak(events_by_date: dict[str, dict], daily_goal: int) -> int:
-    """
-    Consecutive days ending today (or yesterday) where the user hit their
-    daily goal. Same logic as current_streak but with a higher threshold.
-    """
     today = date.today()
     today_event = events_by_date.get(today.isoformat())
     today_hit = bool(today_event and today_event.get("total_reviews", 0) >= daily_goal)
@@ -259,15 +231,10 @@ def goal_streak(events_by_date: dict[str, dict], daily_goal: int) -> int:
 
 
 def total_goal_hits(events_by_date: dict[str, dict], daily_goal: int) -> int:
-    """Total days the user has hit their daily goal."""
     return sum(1 for ev in events_by_date.values() if ev.get("total_reviews", 0) >= daily_goal)
 
 
 def last_n_days(events_by_date: dict[str, dict], n: int = 7) -> list[dict]:
-    """
-    Last n days inclusive ending today, filling in zeros for missed days.
-    Each entry: {date, total_reviews, hit_goal}.
-    """
     today = date.today()
     out = []
     for i in range(n - 1, -1, -1):
@@ -281,17 +248,12 @@ def last_n_days(events_by_date: dict[str, dict], n: int = 7) -> list[dict]:
 
 
 def days_with_pet(started_at: str) -> int:
-    """Days since the user got their pet, inclusive of today (so day 1 = signup day)."""
     start = date.fromisoformat(started_at)
     delta = (date.today() - start).days
     return max(delta + 1, 1)
 
 
 def compute_pet_state(user_id: str, user: dict) -> dict:
-    """
-    The single source of truth for what's displayed about a user's pet.
-    Read events, filter, derive everything.
-    """
     started_at = user["started_at"]
     daily_goal = user["daily_goal"]
 
@@ -309,32 +271,26 @@ def compute_pet_state(user_id: str, user: dict) -> dict:
     latest_event = events_by_date.get(latest_date) if latest_date else None
 
     return {
-        # Identity & config
         "user_id": user_id,
         "started_at": started_at,
         "days_with_pet": days_with_pet(started_at),
         "daily_goal": daily_goal,
 
-        # Today
         "total_reviews_today": today_total,
         "unique_cards_today": today_unique,
         "goal_hit_today": today_total >= daily_goal,
         "goal_progress_today": min(today_total / daily_goal, 1.0) if daily_goal > 0 else 0,
 
-        # Streaks
         "current_streak": current_streak(dates_with_reviews),
         "longest_streak": longest_streak(dates_with_reviews),
         "goal_streak": goal_streak(events_by_date, daily_goal),
 
-        # Totals
         "lifetime_reviews": sum(ev.get("total_reviews", 0) for ev in events_by_date.values()),
         "days_with_reviews": len(dates_with_reviews),
         "total_goal_hits": total_goal_hits(events_by_date, daily_goal),
 
-        # History window
         "last_7_days": last_n_days(events_by_date, n=7),
 
-        # Freshness
         "last_synced_at": latest_event.get("received_at") if latest_event else None,
         "latest_data_date": latest_date,
     }
@@ -342,7 +298,16 @@ def compute_pet_state(user_id: str, user: dict) -> dict:
 
 # ---------------------------------------------------------------------------
 # Entry point
+#
+# Locally (no PORT env var set): listens on 127.0.0.1:8000 with debug=True.
+# On Railway / other hosts: uses $PORT and 0.0.0.0, debug off.
 # ---------------------------------------------------------------------------
 
 if __name__ == "__main__":
-    app.run(host="127.0.0.1", port=8000, debug=True)
+    port = int(os.environ.get("PORT", 8000))
+    is_hosted = "PORT" in os.environ
+    app.run(
+        host="0.0.0.0" if is_hosted else "127.0.0.1",
+        port=port,
+        debug=not is_hosted,
+    )
