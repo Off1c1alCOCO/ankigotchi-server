@@ -1,0 +1,351 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Ankigotchi (working title)</title>
+  <style>
+    /* ===== Layout & base ===== */
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: #f5f3ef;
+      color: #2a2a2a;
+      margin: 0;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 2rem;
+    }
+    h1 {
+      font-size: 1.25rem;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: #888;
+      margin: 0 0 1.5rem 0;
+    }
+
+    /* ===== The pet card ===== */
+    .pet-card {
+      background: white;
+      border-radius: 1rem;
+      padding: 2.5rem 3rem;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.05), 0 10px 30px rgba(0,0,0,0.05);
+      text-align: center;
+      width: 360px;
+    }
+    .pet-face {
+      font-family: "SF Mono", Menlo, Consolas, monospace;
+      font-size: 4rem;
+      line-height: 1;
+      margin: 0 0 0.75rem 0;
+    }
+    .pet-mood {
+      color: #666;
+      font-style: italic;
+      margin: 0 0 1.5rem 0;
+      min-height: 1.5em;   /* Reserve space so the layout doesn't jump while loading */
+    }
+
+    /* ===== Progress bar ===== */
+    .progress-block {
+      margin: 1.5rem 0;
+    }
+    .progress-numbers {
+      display: flex;
+      justify-content: space-between;
+      font-size: 0.9rem;
+      margin-bottom: 0.4rem;
+    }
+    .progress-numbers .current { font-weight: 700; }
+    .progress-numbers .goal { color: #888; }
+    .progress-bar {
+      height: 10px;
+      background: #eee;
+      border-radius: 999px;
+      overflow: hidden;
+    }
+    .progress-fill {
+      height: 100%;
+      width: 0%;
+      background: linear-gradient(90deg, #2a2a2a, #555);
+      transition: width 0.4s ease-out;
+    }
+    .progress-fill.goal-hit {
+      background: linear-gradient(90deg, #2a8a4f, #4eb37a);
+    }
+
+    /* ===== Stats row ===== */
+    .stats-row {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 0.5rem;
+      margin: 1.5rem 0;
+      padding: 1rem 0;
+      border-top: 1px solid #eee;
+      border-bottom: 1px solid #eee;
+    }
+    .stat {
+      text-align: center;
+    }
+    .stat .value {
+      font-size: 1.6rem;
+      font-weight: 700;
+      line-height: 1;
+    }
+    .stat .label {
+      font-size: 0.7rem;
+      color: #888;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      margin-top: 0.3rem;
+    }
+
+    /* ===== 7-day chart ===== */
+    .chart {
+      margin: 1.5rem 0 0.5rem 0;
+    }
+    .chart-title {
+      font-size: 0.7rem;
+      color: #888;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      text-align: left;
+      margin-bottom: 0.5rem;
+    }
+    .chart-bars {
+      display: grid;
+      grid-template-columns: repeat(7, 1fr);
+      gap: 0.4rem;
+      align-items: end;
+      height: 60px;
+    }
+    .chart-bar {
+      display: flex;
+      flex-direction: column;
+      justify-content: end;
+      align-items: stretch;
+      height: 100%;
+    }
+    .chart-bar .bar {
+      background: #ccc;
+      border-radius: 2px 2px 0 0;
+      min-height: 2px;     /* Always show something, even for zero days */
+      transition: height 0.4s ease-out;
+    }
+    .chart-bar .bar.goal-hit {
+      background: #2a8a4f;
+    }
+    .chart-labels {
+      display: grid;
+      grid-template-columns: repeat(7, 1fr);
+      gap: 0.4rem;
+      margin-top: 0.4rem;
+    }
+    .chart-labels span {
+      text-align: center;
+      font-size: 0.65rem;
+      color: #888;
+      text-transform: uppercase;
+    }
+
+    /* ===== Button ===== */
+    button {
+      margin-top: 1.5rem;
+      padding: 0.6rem 1.5rem;
+      font-size: 0.9rem;
+      background: #2a2a2a;
+      color: white;
+      border: none;
+      border-radius: 0.5rem;
+      cursor: pointer;
+    }
+    button:hover { background: #444; }
+
+    /* ===== Footer text ===== */
+    .footer-meta {
+      margin-top: 1rem;
+      font-size: 0.75rem;
+      color: #aaa;
+    }
+  </style>
+</head>
+<body>
+
+  <h1>Ankigotchi</h1>
+
+  <div class="pet-card">
+    <div id="pet-face" class="pet-face">(?_?)</div>
+    <p id="pet-mood" class="pet-mood">Loading...</p>
+
+    <div class="progress-block">
+      <div class="progress-numbers">
+        <span><span class="current" id="progress-current">—</span> reviews today</span>
+        <span class="goal">goal: <span id="progress-goal">—</span></span>
+      </div>
+      <div class="progress-bar">
+        <div id="progress-fill" class="progress-fill"></div>
+      </div>
+    </div>
+
+    <div class="stats-row">
+      <div class="stat">
+        <div class="value" id="stat-streak">—</div>
+        <div class="label">Streak</div>
+      </div>
+      <div class="stat">
+        <div class="value" id="stat-goal-streak">—</div>
+        <div class="label">Goal Streak</div>
+      </div>
+      <div class="stat">
+        <div class="value" id="stat-days">—</div>
+        <div class="label">Days with Pet</div>
+      </div>
+    </div>
+
+    <div class="chart">
+      <div class="chart-title">Last 7 days</div>
+      <div class="chart-bars" id="chart-bars"></div>
+      <div class="chart-labels" id="chart-labels"></div>
+    </div>
+
+    <button id="refresh">Refresh</button>
+    <div class="footer-meta" id="footer-meta"></div>
+  </div>
+
+  <script>
+    const USER_ID = "cameron";
+
+    /* -------------------- Mood logic --------------------
+       One place for all the "how does the pet feel about today" rules.
+       Tweak thresholds and faces freely here without touching anything else. */
+    function moodFor(state) {
+      const total = state.total_reviews_today || 0;
+      const goal  = state.daily_goal || 0;
+      const progress = goal > 0 ? total / goal : 0;
+
+      if (state.goal_hit_today && state.goal_streak >= 3) {
+        return { face: "(^_^)", mood: `Thrilled — ${state.goal_streak}-day goal streak!` };
+      }
+      if (state.goal_hit_today) {
+        return { face: "(^_^)", mood: "Goal hit. Great work today." };
+      }
+      if (progress >= 0.75) {
+        return { face: "(^o^)", mood: "Almost there. A few more cards." };
+      }
+      if (progress >= 0.5) {
+        return { face: "(o_o)", mood: "Halfway. Keep going." };
+      }
+      if (progress >= 0.25) {
+        return { face: "(._.)", mood: "Making progress. More cards please." };
+      }
+      if (total > 0) {
+        return { face: "(._.)", mood: "Just getting started today." };
+      }
+      if ((state.current_streak || 0) > 0) {
+        return {
+          face: "(>_<)",
+          mood: `Hungry. Don't break your ${state.current_streak}-day streak!`,
+        };
+      }
+      return { face: "(x_x)", mood: "Starving. Open Anki and feed me." };
+    }
+
+    /* -------------------- Helpers -------------------- */
+    function formatTime(isoString) {
+      if (!isoString) return "never";
+      return new Date(isoString).toLocaleString();
+    }
+
+    function dayLabel(isoDate) {
+      // "2026-05-11" -> "Mon"
+      const d = new Date(isoDate + "T12:00:00");
+      return d.toLocaleDateString(undefined, { weekday: "short" });
+    }
+
+    function renderChart(last7, dailyGoal) {
+      const barsEl = document.getElementById("chart-bars");
+      const labelsEl = document.getElementById("chart-labels");
+      barsEl.innerHTML = "";
+      labelsEl.innerHTML = "";
+
+      // Scale: highest of (max in window, daily goal) so bars stay comparable
+      // even if the user has a quiet week.
+      const maxReviews = Math.max(
+        ...last7.map(d => d.total_reviews || 0),
+        dailyGoal,
+        1,
+      );
+
+      for (const day of last7) {
+        const reviews = day.total_reviews || 0;
+        const heightPct = Math.max(2, (reviews / maxReviews) * 100);
+
+        const wrapper = document.createElement("div");
+        wrapper.className = "chart-bar";
+        const bar = document.createElement("div");
+        bar.className = "bar" + (reviews >= dailyGoal && dailyGoal > 0 ? " goal-hit" : "");
+        bar.style.height = `${heightPct}%`;
+        bar.title = `${day.date}: ${reviews} reviews`;
+        wrapper.appendChild(bar);
+        barsEl.appendChild(wrapper);
+
+        const label = document.createElement("span");
+        label.textContent = dayLabel(day.date);
+        labelsEl.appendChild(label);
+      }
+    }
+
+    /* -------------------- Main load -------------------- */
+    async function loadPet() {
+      try {
+        const response = await fetch(`/pet/${USER_ID}`);
+
+        if (!response.ok) {
+          // 404 = user record doesn't exist (shouldn't happen for us)
+          document.getElementById("pet-face").textContent = "(?_?)";
+          document.getElementById("pet-mood").textContent =
+            "No user record found. Add one to the USERS dict in server.py.";
+          return;
+        }
+
+        const state = await response.json();
+
+        // Pet face & mood
+        const { face, mood } = moodFor(state);
+        document.getElementById("pet-face").textContent = face;
+        document.getElementById("pet-mood").textContent = mood;
+
+        // Progress bar
+        document.getElementById("progress-current").textContent = state.total_reviews_today;
+        document.getElementById("progress-goal").textContent    = state.daily_goal;
+        const fill = document.getElementById("progress-fill");
+        fill.style.width = `${Math.min(100, (state.goal_progress_today || 0) * 100)}%`;
+        fill.classList.toggle("goal-hit", !!state.goal_hit_today);
+
+        // Stats row
+        document.getElementById("stat-streak").textContent       = state.current_streak;
+        document.getElementById("stat-goal-streak").textContent  = state.goal_streak;
+        document.getElementById("stat-days").textContent         = state.days_with_pet;
+
+        // 7-day chart
+        renderChart(state.last_7_days || [], state.daily_goal || 0);
+
+        // Footer
+        document.getElementById("footer-meta").textContent =
+          `Last synced ${formatTime(state.last_synced_at)} · Lifetime reviews: ${state.lifetime_reviews}`;
+
+      } catch (err) {
+        document.getElementById("pet-face").textContent = "(x_x)";
+        document.getElementById("pet-mood").textContent = "Couldn't reach the server.";
+        console.error("loadPet failed:", err);
+      }
+    }
+
+    loadPet();
+    document.getElementById("refresh").addEventListener("click", loadPet);
+  </script>
+
+</body>
+</html>
